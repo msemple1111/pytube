@@ -4,16 +4,19 @@ import os
 import time
 import xml.etree.ElementTree as ElementTree
 from html import unescape
-from typing import Dict, Optional
+from typing import Dict
+from typing import Optional
+from async_property import async_property
 
 from pytube import request
-from pytube.helpers import safe_filename, target_directory
+from pytube.helpers import safe_filename
+from pytube.helpers import target_directory
 
 
 class Caption:
     """Container for caption tracks."""
 
-    def __init__(self, caption_track: Dict):
+    def __init__(self, caption_track: Dict, session=None):
         """Construct a :class:`Caption <Caption>`.
 
         :param dict caption_track:
@@ -23,23 +26,24 @@ class Caption:
         self.name = caption_track["name"]["simpleText"]
         # Use "vssId" instead of "languageCode", fix issue #779
         self.code = caption_track["vssId"]
+        self._session = session if session else request.createSession()
         # Remove preceding '.' for backwards compatibility, e.g.:
         # English -> vssId: .en, languageCode: en
         # English (auto-generated) -> vssId: a.en, languageCode: en
         self.code = self.code.strip('.')
 
-    @property
-    def xml_captions(self) -> str:
+    @async_property
+    async def xml_captions(self) -> str:
         """Download the xml caption tracks."""
-        return request.get(self.url)
+        return await request.get(self.url, self._session)
 
-    def generate_srt_captions(self) -> str:
+    async def generate_srt_captions(self) -> str:
         """Generate "SubRip Subtitle" captions.
 
         Takes the xml captions from :meth:`~pytube.Caption.xml_captions` and
         recompiles them into the "SubRip Subtitle" format.
         """
-        return self.xml_caption_to_srt(self.xml_captions)
+        return self.xml_caption_to_srt(await self.xml_captions)
 
     @staticmethod
     def float_to_srt_time_format(d: float) -> str:
@@ -80,7 +84,7 @@ class Caption:
             segments.append(line)
         return "\n".join(segments).strip()
 
-    def download(
+    async def download(
         self,
         title: str,
         srt: bool = True,
@@ -131,9 +135,9 @@ class Caption:
 
         with open(file_path, "w", encoding="utf-8") as file_handle:
             if srt:
-                file_handle.write(self.generate_srt_captions())
+                file_handle.write(await self.generate_srt_captions())
             else:
-                file_handle.write(self.xml_captions)
+                file_handle.write(await self.xml_captions)
 
         return file_path
 

@@ -2,14 +2,18 @@
 """Implements a simple wrapper around urlopen."""
 import json
 import logging
+from functools import lru_cache
 import re
 import socket
-from functools import lru_cache
 from urllib import parse
 from urllib.error import URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from urllib.request import urlopen
+import asyncio
+import aiohttp
+from async_property import async_property
 
-from pytube.exceptions import RegexMatchError, MaxRetriesExceeded
+from pytube.exceptions import RegexMatchError, MaxRetriesExceeded, PytubeError
 from pytube.helpers import regex_search
 
 logger = logging.getLogger(__name__)
@@ -17,28 +21,43 @@ default_chunk_size = 4096  # 4kb
 default_range_size = 9437184  # 9MB
 
 
-def _execute_request(
+async def _execute_request(
     url,
-    method=None,
+    session,
+    method="GET",
     headers=None,
     data=None,
-    timeout=socket._GLOBAL_DEFAULT_TIMEOUT
+    timeout=900
 ):
-    base_headers = {"User-Agent": "Mozilla/5.0", "accept-language": "en-US,en"}
+    base_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15",
+        "Accept-Language": "en-gb",
+        "Accept": "text/html,application/xhtml+xml,application/json,application/xml,*/*",
+        "Cookie": " SIDCC=AJi4QfH98WcrVkkwkemQMRQ9WZk9asesce9uEBJkCoSZx7KTeRNtuzR27BMQI2egTnqm88zh5X8; __Secure-3PSIDCC=AJi4QfFQwZXPSNQg6UMBf5qN10JKZXOo5rF_bNIt49K-rjiVAenqPrDUOIidVRuIVX2VuuXWgTuh; PREF=f6=80&cvdm=grid&tz=Europe.London&al=en&f1=50000000&f5=20030; YSC=LX5Yqn1VDIY; SID=7gcQhFI6EGi5fTesrHcRi7R8Kr7hATYaPzfFKRMKbU683gEa3lCY9Cxwp5Qvx95NzW0iJw.; __Secure-3PSID=7gcQhFI6EGi5fTesrHcRi7R8Kr7hATYaPzfFKRMKbU683gEasPa2dANKe7n6oJFYyNl3zQ.; VISITOR_INFO1_LIVE=yMho0O5Fu8c; LOGIN_INFO=AFmmF2swRgIhAID-B4DkkwhR-1gfK2OiiNzQnI9wvr4u2V8t9t_EelE4AiEA0f9f0va-cI6W4fuiUY1csuXBcGrtMesF0qClM6QKo1Q:QUQ3MjNmd0pST1pxNnZtcjBEeVZaWEIxeTdjd2tSX0NRUG9aS0xMbm9OUjF5cVhWS05pcmZRUlJxTW5xeElUWFZfM25COE5MYUNEbWQtX3YtMVo1elNHSUo5dUxKNk9QSTE4QU1TbXZQQUtiUzBENWhlR2lRVkoyWGRJVmVwRXA5MFdTc2JCNmZoOUZhb0ZaWWYwM19VanlydGZYMjEtMHZxX0FxNF8tbnBwRVIxeVB1dElIdUdDM1g1bGNyV29jT3NSWVAwTVZtRGlM; APISID=9Ypo17XlCCqRQOqg/AGiSpUTfb32XlzW5y; CONSENT=YES+GB.en+20150628-20-0; HSID=AVfH2Ju5Ehm1Mb2fQ; SAPISID=pga-i3racg1AaWor/Au9F8Y1xXPhYV7Wa4; SSID=APSW8jzRJN6bFhee7; __Secure-3PAPISID=pga-i3racg1AaWor/Au9F8Y1xXPhYV7Wa4"}
     if headers:
         base_headers.update(headers)
-    if data:
-        # encode data for request
-        if not isinstance(data, bytes):
-            data = bytes(json.dumps(data), encoding="utf-8")
+    # if data:
+    #     # encode data for request
+    #     data = bytes(json.dumps(data), "utf-8")
     if url.lower().startswith("http"):
-        request = Request(url, headers=base_headers, method=method, data=data)
+        try:
+            resp = await session.request(
+                    method,
+                    url,
+                    headers=base_headers,
+                    json=data)
+            if resp.status == 400:
+                raise PytubeError(f"Not 200 code, code={resp.status}")
+            else:
+                return resp
+        except aiohttp.client_exceptions.InvalidURL:
+            await session.close()
+            raise ValueError("Invalid URL")
     else:
         raise ValueError("Invalid URL")
-    return urlopen(request, timeout=timeout)  # nosec
 
 
-def get(url, extra_headers=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
+async def get(url, session, extra_headers=None, timeout=900):
     """Send an http GET request.
 
     :param str url:
@@ -51,11 +70,17 @@ def get(url, extra_headers=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
     """
     if extra_headers is None:
         extra_headers = {}
-    response = _execute_request(url, headers=extra_headers, timeout=timeout)
-    return response.read().decode("utf-8")
+    response = await _execute_request(
+        url,
+        session,
+        method='GET',
+        headers=extra_headers,
+        timeout=timeout
+    )
+    return await response.text()
 
 
-def post(url, extra_headers=None, data=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
+async def post(url, session, extra_headers=None, data=None, timeout=900):
     """Send an http POST request.
 
     :param str url:
@@ -76,19 +101,22 @@ def post(url, extra_headers=None, data=None, timeout=socket._GLOBAL_DEFAULT_TIME
         data = {}
     # required because the youtube servers are strict on content type
     # raises HTTPError [400]: Bad Request otherwise
-    extra_headers.update({"Content-Type": "application/json"})
-    response = _execute_request(
+    # extra_headers.update({"Content-Type": "application/json"})
+    response = await _execute_request(
         url,
+        session,
+        method='POST',
         headers=extra_headers,
         data=data,
         timeout=timeout
     )
-    return response.read().decode("utf-8")
+    return await response.text()
 
 
-def seq_stream(
+async def seq_stream(
     url,
-    timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+    session,
+    timeout=900,
     max_retries=0
 ):
     """Read the response in sequence.
@@ -107,7 +135,7 @@ def seq_stream(
     url = base_url + parse.urlencode(querys)
 
     segment_data = b''
-    for chunk in stream(url, timeout=timeout, max_retries=max_retries):
+    async for chunk in stream(url, session, timeout=timeout, max_retries=max_retries):
         yield chunk
         segment_data += chunk
 
@@ -126,14 +154,15 @@ def seq_stream(
         querys['sq'] = seq_num
         url = base_url + parse.urlencode(querys)
 
-        yield from stream(url, timeout=timeout, max_retries=max_retries)
+        await stream(url, session, timeout=timeout, max_retries=max_retries)
         seq_num += 1
     return  # pylint: disable=R1711
 
 
-def stream(
+async def stream(
     url,
-    timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+    session,
+    timeout=900,
     max_retries=0
 ):
     """Read the response in chunks.
@@ -155,8 +184,9 @@ def stream(
 
             # Try to execute the request, ignoring socket timeouts
             try:
-                response = _execute_request(
+                response = await _execute_request(
                     url,
+                    session,
                     method="GET",
                     headers={"Range": range_header},
                     timeout=timeout
@@ -171,12 +201,12 @@ def stream(
 
         if file_size == default_range_size:
             try:
-                content_range = response.info()["Content-Range"]
+                content_range = response.headers["Content-Range"]
                 file_size = int(content_range.split("/")[1])
             except (KeyError, IndexError, ValueError) as e:
                 logger.error(e)
         while True:
-            chunk = response.read(default_chunk_size)
+            chunk = await response.content.read(default_chunk_size)
             if not chunk:
                 break
             downloaded += len(chunk)
@@ -185,17 +215,17 @@ def stream(
 
 
 @lru_cache()
-def filesize(url):
+async def filesize(url, session):
     """Fetch size in bytes of file at given URL
 
     :param str url: The URL to get the size of
     :returns: int: size in bytes of remote file
     """
-    return int(head(url)["content-length"])
+    return int((await head(url, session))["content-length"])
 
 
 @lru_cache()
-def seq_filesize(url):
+async def seq_filesize(url, session):
     """Fetch size in bytes of file at given URL from sequential requests
 
     :param str url: The URL to get the size of
@@ -211,11 +241,11 @@ def seq_filesize(url):
     #  information about how the file is segmented.
     querys['sq'] = 0
     url = base_url + parse.urlencode(querys)
-    response = _execute_request(
-        url, method="GET"
+    response = await _execute_request(
+        url, session, method="GET"
     )
 
-    response_value = response.read()
+    response_value = await response.text()
     # The file header must be added to the total filesize
     total_filesize += len(response_value)
 
@@ -241,12 +271,12 @@ def seq_filesize(url):
         querys['sq'] = seq_num
         url = base_url + parse.urlencode(querys)
 
-        total_filesize += int(head(url)['content-length'])
+        total_filesize += int((await head(url, session))['content-length'])
         seq_num += 1
     return total_filesize
 
 
-def head(url):
+async def head(url, session):
     """Fetch headers returned http GET request.
 
     :param str url:
@@ -255,5 +285,8 @@ def head(url):
     :returns:
         dictionary of lowercase headers
     """
-    response_headers = _execute_request(url, method="HEAD").info()
+    response_headers = (await _execute_request(url, session, method="HEAD")).headers
     return {k.lower(): v for k, v in response_headers.items()}
+
+def createSession():
+    return aiohttp.ClientSession()

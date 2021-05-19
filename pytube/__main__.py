@@ -9,13 +9,30 @@ smaller peripheral modules and functions.
 """
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from typing import Callable
+from typing import Dict
+from typing import List
+from typing import Optional
 from urllib.parse import parse_qsl
+from aiohttp import ClientSession
+from async_property import async_property
 
 import pytube
-import pytube.exceptions as exceptions
-from pytube import extract, request
-from pytube import Stream, StreamQuery
+from pytube import Caption
+from pytube import CaptionQuery
+from pytube import extract
+from pytube import request
+from pytube import Stream
+from pytube import StreamQuery
+from pytube.exceptions import MembersOnly
+from pytube.exceptions import RecordingUnavailable
+from pytube.exceptions import VideoUnavailable
+from pytube.exceptions import VideoPrivate
+from pytube.exceptions import VideoRegionBlocked
+from pytube.extract import apply_descrambler
+from pytube.extract import apply_signature
+from pytube.extract import get_ytplayer_config
 from pytube.helpers import install_proxy
 from pytube.metadata import YouTubeMetadata
 from pytube.monostate import Monostate
@@ -32,6 +49,7 @@ class YouTube:
         on_progress_callback: Optional[Callable[[Any, bytes, int], None]] = None,
         on_complete_callback: Optional[Callable[[Any, Optional[str]], None]] = None,
         proxies: Dict[str, str] = None,
+        session: ClientSession = None
     ):
         """Construct a :class:`YouTube <YouTube>`.
 
@@ -66,6 +84,7 @@ class YouTube:
         self._age_restricted: Optional[bool] = None
 
         self._fmt_streams: Optional[List[Stream]] = None
+        self._client_session: ClientSession = session if session else request.createSession()
 
         self._initial_data = None
         self._metadata: Optional[YouTubeMetadata] = None
@@ -88,32 +107,32 @@ class YouTube:
         self._title = None
         self._publish_date = None
 
-    @property
-    def watch_html(self):
+    @async_property
+    async def watch_html(self):
         if self._watch_html:
             return self._watch_html
-        self._watch_html = request.get(url=self.watch_url)
+        self._watch_html = await request.get(self.watch_url, self._client_session)
         return self._watch_html
 
-    @property
-    def embed_html(self):
+    @async_property
+    async def embed_html(self):
         if self._embed_html:
             return self._embed_html
-        self._embed_html = request.get(url=self.embed_url)
+        self._embed_html = await request.get(self.embed_url, self._client_session)
         return self._embed_html
 
-    @property
-    def vid_info_raw(self):
+    @async_property
+    async def vid_info_raw(self):
         if self._vid_info_raw:
             return self._vid_info_raw
-        self._vid_info_raw = request.get(self.vid_info_url)
+        self._vid_info_raw = await request.get(self.vid_info_url, self._client_session)
         return self._vid_info_raw
 
-    @property
-    def age_restricted(self):
+    @async_property
+    async def age_restricted(self):
         if self._age_restricted:
             return self._age_restricted
-        self._age_restricted = extract.is_age_restricted(self.watch_html)
+        self._age_restricted = extract.is_age_restricted(await self.watch_html)
         return self._age_restricted
 
     @property
@@ -131,120 +150,121 @@ class YouTube:
             )
         return self._vid_info_url
 
-    @property
-    def js_url(self):
+    @async_property
+    async def js_url(self):
         if self._js_url:
             return self._js_url
 
         if self.age_restricted:
-            self._js_url = extract.js_url(self.embed_html)
+            self._js_url = extract.js_url(await self.embed_html)
         else:
-            self._js_url = extract.js_url(self.watch_html)
+            self._js_url = extract.js_url(await self.watch_html)
 
         return self._js_url
 
-    @property
-    def js(self):
+    @async_property
+    async def js(self):
         if self._js:
             return self._js
 
         # If the js_url doesn't match the cached url, fetch the new js and update
         #  the cache; otherwise, load the cache.
-        if pytube.__js_url__ != self.js_url:
-            self._js = request.get(self.js_url)
+        if pytube.__js_url__ != (await self.js_url):
+            self._js = await request.get((await self.js_url), self._client_session)
             pytube.__js__ = self._js
-            pytube.__js_url__ = self.js_url
+            pytube.__js_url__ = (await self.js_url)
         else:
             self._js = pytube.__js__
 
         return self._js
 
-    @property
-    def player_response(self):
+    @async_property
+    async def player_response(self):
         """The player response contains subtitle information and video details."""
         if self._player_response:
             return self._player_response
 
-        if isinstance(self.player_config_args["player_response"], str):
+        if isinstance((await self.player_config_args)["player_response"], str):
             self._player_response = json.loads(
-                self.player_config_args["player_response"]
+                (await self.player_config_args)["player_response"]
             )
         else:
-            self._player_response = self.player_config_args["player_response"]
+            self._player_response = (await self.player_config_args)["player_response"]
         return self._player_response
 
-    @property
-    def initial_data(self):
+    @async_property
+    async def initial_data(self):
         if self._initial_data:
             return self._initial_data
-        self._initial_data = extract.initial_data(self.watch_html)
+        self._initial_data = extract.initial_data(await self.watch_html)
         return self._initial_data
 
-    @property
-    def player_config_args(self):
+    @async_property
+    async def player_config_args(self):
         if self._player_config_args:
             return self._player_config_args
 
-        self._player_config_args = self.vid_info
+        self._player_config_args = await self.vid_info
         # On pre-signed videos, we need to use get_ytplayer_config to fix
         #  the player_response item
-        if 'streamingData' not in self.player_config_args['player_response']:
-            config_response = extract.get_ytplayer_config(self.watch_html)
+        if 'streamingData' not in (await self.player_config_args)['player_response']:
+            config_response = get_ytplayer_config(await self.watch_html)
             if 'args' in config_response:
-                self.player_config_args['player_response'] = config_response['args']['player_response']  # noqa: E501
+                (await self.player_config_args)['player_response'] = config_response['args']['player_response']  # noqa: E501
             else:
-                self.player_config_args['player_response'] = config_response
+                (await self.player_config_args)['player_response'] = config_response
 
         return self._player_config_args
 
-    @property
-    def fmt_streams(self):
+    @async_property
+    async def fmt_streams(self):
         """Returns a list of streams if they have been initialized.
 
         If the streams have not been initialized, finds all relevant
         streams and initializes them.
         """
-        self.check_availability()
+        await self.check_availability()
         if self._fmt_streams:
             return self._fmt_streams
 
         self._fmt_streams = []
         # https://github.com/nficano/pytube/issues/165
         stream_maps = ["url_encoded_fmt_stream_map"]
-        if "adaptive_fmts" in self.player_config_args:
+        if "adaptive_fmts" in (await self.player_config_args):
             stream_maps.append("adaptive_fmts")
 
         # unscramble the progressive and adaptive stream manifests.
         for fmt in stream_maps:
-            if not self.age_restricted and fmt in self.vid_info:
-                extract.apply_descrambler(self.vid_info, fmt)
-            extract.apply_descrambler(self.player_config_args, fmt)
+            if not (await self.age_restricted) and fmt in (await self.vid_info):
+                apply_descrambler((await self.vid_info), fmt)
+            apply_descrambler((await self.player_config_args), fmt)
 
-            extract.apply_signature(self.player_config_args, fmt, self.js)
+            apply_signature((await self.player_config_args), fmt, (await self.js))
 
             # build instances of :class:`Stream <Stream>`
             # Initialize stream objects
-            stream_manifest = self.player_config_args[fmt]
+            stream_manifest = (await self.player_config_args)[fmt]
             for stream in stream_manifest:
                 video = Stream(
                     stream=stream,
-                    player_config_args=self.player_config_args,
+                    player_config_args=(await self.player_config_args),
                     monostate=self.stream_monostate,
+                    session=self._client_session,
                 )
                 self._fmt_streams.append(video)
 
-        self.stream_monostate.title = self.title
-        self.stream_monostate.duration = self.length
+        self.stream_monostate.title = await self.title
+        self.stream_monostate.duration = await self.length
 
         return self._fmt_streams
 
-    def check_availability(self):
+    async def check_availability(self):
         """Check whether the video is available.
 
         Raises different exceptions based on why the video is unavailable,
         otherwise does nothing.
         """
-        status, messages = extract.playability_status(self.watch_html)
+        status, messages = extract.playability_status(await self.watch_html)
 
         for reason in messages:
             if status == 'UNPLAYABLE':
@@ -252,70 +272,70 @@ class YouTube:
                     'Join this channel to get access to members-only content '
                     'like this video, and other exclusive perks.'
                 ):
-                    raise exceptions.MembersOnly(video_id=self.video_id)
+                    raise MembersOnly(video_id=self.video_id)
                 elif reason == 'This live stream recording is not available.':
-                    raise exceptions.RecordingUnavailable(video_id=self.video_id)
+                    raise RecordingUnavailable(video_id=self.video_id)
                 else:
                     if reason == 'Video unavailable':
-                        if extract.is_region_blocked(self.watch_html):
-                            raise exceptions.VideoRegionBlocked(video_id=self.video_id)
-                    raise exceptions.VideoUnavailable(video_id=self.video_id)
+                        if extract.is_region_blocked(await self.watch_html):
+                            raise VideoRegionBlocked(video_id=self.video_id)
+                    raise VideoUnavailable(video_id=self.video_id)
             elif status == 'LOGIN_REQUIRED':
                 if reason == (
                     'This is a private video. '
                     'Please sign in to verify that you may see it.'
                 ):
-                    raise exceptions.VideoPrivate(video_id=self.video_id)
+                    raise VideoPrivate(video_id=self.video_id)
             elif status == 'ERROR':
                 if reason == 'Video unavailable':
-                    raise exceptions.VideoUnavailable(video_id=self.video_id)
+                    raise VideoUnavailable(video_id=self.video_id)
 
-    @property
-    def vid_info(self):
+    @async_property
+    async def vid_info(self):
         """Parse the raw vid info and return the parsed result.
 
         :rtype: Dict[Any, Any]
         """
-        return dict(parse_qsl(self.vid_info_raw))
+        return dict(parse_qsl(await self.vid_info_raw))
 
-    @property
-    def caption_tracks(self) -> List[pytube.Caption]:
+    @async_property
+    async def caption_tracks(self) -> List[Caption]:
         """Get a list of :class:`Caption <Caption>`.
 
         :rtype: List[Caption]
         """
         raw_tracks = (
-            self.player_response.get("captions", {})
+            (await self.player_response).get("captions", {})
             .get("playerCaptionsTracklistRenderer", {})
             .get("captionTracks", [])
         )
-        return [pytube.Caption(track) for track in raw_tracks]
+        return [Caption(track) for track in raw_tracks]
 
-    @property
-    def captions(self) -> pytube.CaptionQuery:
+    @async_property
+    async def captions(self) -> CaptionQuery:
         """Interface to query caption tracks.
 
         :rtype: :class:`CaptionQuery <CaptionQuery>`.
         """
-        return pytube.CaptionQuery(self.caption_tracks)
+        return CaptionQuery(await self.caption_tracks)
 
-    @property
-    def streams(self) -> StreamQuery:
+    @async_property
+    async def streams(self) -> StreamQuery:
         """Interface to query both adaptive (DASH) and progressive streams.
 
         :rtype: :class:`StreamQuery <StreamQuery>`.
         """
-        self.check_availability()
-        return StreamQuery(self.fmt_streams)
+        await self.check_availability()
+        return StreamQuery(await self.fmt_streams)
 
-    @property
-    def thumbnail_url(self) -> str:
+    @async_property
+    async def thumbnail_url(self) -> str:
         """Get the thumbnail url image.
 
         :rtype: str
         """
         thumbnail_details = (
-            self.player_response.get("videoDetails", {})
+            (await self.player_response).get("videoDetails", {})
             .get("thumbnail", {})
             .get("thumbnails")
         )
@@ -325,103 +345,103 @@ class YouTube:
 
         return f"https://img.youtube.com/vi/{self.video_id}/maxresdefault.jpg"
 
-    @property
-    def publish_date(self):
+    @async_property
+    async def publish_date(self):
         """Get the publish date.
 
         :rtype: datetime
         """
         if self._publish_date:
             return self._publish_date
-        self._publish_date = extract.publish_date(self.watch_html)
+        self._publish_date = extract.publish_date(await self.watch_html)
         return self._publish_date
 
-    @publish_date.setter
-    def publish_date(self, value):
-        """Sets the publish date."""
-        self._publish_date = value
+    # @publish_date.setter
+    # def publish_date(self, value):
+    #     """Sets the publish date."""
+    #     self._publish_date = value
 
-    @property
-    def title(self) -> str:
+    @async_property
+    async def title(self) -> str:
         """Get the video title.
 
         :rtype: str
         """
         if self._title:
             return self._title
-        self._title = self.player_response['videoDetails']['title']
+        self._title = (await self.player_response)['videoDetails']['title']
         return self._title
 
-    @title.setter
-    def title(self, value):
-        """Sets the title value."""
-        self._title = value
+    # @title.setter
+    # def title(self, value):
+    #     """Sets the title value."""
+    #     self._title = value
 
-    @property
-    def description(self) -> str:
+    @async_property
+    async def description(self) -> str:
         """Get the video description.
 
         :rtype: str
         """
-        return self.player_response.get("videoDetails", {}).get("shortDescription")
+        return (await self.player_response).get("videoDetails", {}).get("shortDescription")
 
-    @property
-    def rating(self) -> float:
+    @async_property
+    async def rating(self) -> float:
         """Get the video average rating.
 
         :rtype: float
 
         """
-        return self.player_response.get("videoDetails", {}).get("averageRating")
+        return (await self.player_response).get("videoDetails", {}).get("averageRating")
 
-    @property
-    def length(self) -> int:
+    @async_property
+    async def length(self) -> int:
         """Get the video length in seconds.
 
         :rtype: int
         """
         return int(
-            self.player_config_args.get("length_seconds")
+            (await self.player_config_args).get("length_seconds")
             or (
-                self.player_response.get("videoDetails", {}).get(
+                (await self.player_response).get("videoDetails", {}).get(
                     "lengthSeconds"
                 )
             )
         )
 
-    @property
-    def views(self) -> int:
+    @async_property
+    async def views(self) -> int:
         """Get the number of the times the video has been viewed.
 
         :rtype: int
         """
         return int(
-            self.player_response.get("videoDetails", {}).get("viewCount")
+            (await self.player_response).get("videoDetails", {}).get("viewCount")
         )
 
-    @property
-    def author(self) -> str:
+    @async_property
+    async def author(self) -> str:
         """Get the video author.
         :rtype: str
         """
         if self._author:
             return self._author
-        self._author = self.player_response.get("videoDetails", {}).get(
+        self._author = (await self.player_response).get("videoDetails", {}).get(
             "author", "unknown"
         )
         return self._author
 
-    @author.setter
-    def author(self, value):
-        """Set the video author."""
-        self._author = value
+    # @author.setter
+    # def author(self, value):
+    #     """Set the video author."""
+    #     self._author = value
 
-    @property
-    def keywords(self) -> List[str]:
+    @async_property
+    async def keywords(self) -> List[str]:
         """Get the video keywords.
         :rtype: List[str]
         """
-        return self.player_response.get('videoDetails', {}).get('keywords', [])
+        return (await self.player_response).get('videoDetails', {}).get('keywords', [])
 
     @property
     def metadata(self) -> Optional[YouTubeMetadata]:

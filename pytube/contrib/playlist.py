@@ -4,22 +4,35 @@ import json
 import logging
 import re
 from collections.abc import Sequence
-from datetime import date, datetime
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from datetime import date
+from datetime import datetime
+from typing import Dict, Tuple
+from typing import Iterable
+from typing import List
+from typing import Optional
+from typing import Union
+from aiohttp import ClientSession
+from async_property import async_property
+from async_property import async_cached_property
 
-from pytube import extract, request, YouTube
-from pytube.helpers import cache, install_proxy, regex_search, uniqueify
+from pytube import extract
+from pytube import request
+from pytube import YouTube
+from pytube.helpers import cache
+from pytube.helpers import install_proxy
+from pytube.helpers import regex_search
+from pytube.helpers import uniqueify
 
 logger = logging.getLogger(__name__)
 
 
-class Playlist(Sequence):
+class Playlist:
     """Load a YouTube playlist with URL"""
 
-    def __init__(self, url: str, proxies: Optional[Dict[str, str]] = None):
+    def __init__(self, url: str, proxies: Optional[Dict[str, str]] = None, session: ClientSession = None):
         if proxies:
             install_proxy(proxies)
-
+        self._session = session if session else request.createSession()
         # These need to be initialized as None for the properties.
         self._html = None
         self._ytcfg = None
@@ -30,25 +43,25 @@ class Playlist(Sequence):
             f"https://www.youtube.com/playlist?list={self.playlist_id}"
         )
 
-    @property
-    def html(self):
+    @async_property
+    async def html(self):
         if self._html:
             return self._html
-        self._html = request.get(self.playlist_url)
+        self._html = await request.get(self.playlist_url, self._session)
         return self._html
 
-    @property
-    def ytcfg(self):
+    @async_property
+    async def ytcfg(self):
         if self._ytcfg:
             return self._ytcfg
-        self._ytcfg = extract.get_ytcfg(self.html)
+        self._ytcfg = extract.get_ytcfg(await self.html)
         return self._ytcfg
 
-    @property
-    def yt_api_key(self):
-        return self.ytcfg['INNERTUBE_API_KEY']
+    @async_property
+    async def yt_api_key(self):
+        return (await self.ytcfg)['INNERTUBE_API_KEY']
 
-    def _paginate(
+    async def _paginate(
         self, until_watch_id: Optional[str] = None
     ) -> Iterable[List[str]]:
         """Parse the video links from the page source, yields the /watch?v=
@@ -61,7 +74,7 @@ class Playlist(Sequence):
         :returns: Iterable of lists of YouTube watch ids
         """
         videos_urls, continuation = self._extract_videos(
-            json.dumps(extract.initial_data(self.html))
+            json.dumps(extract.initial_data(await self.html))
         )
         if until_watch_id:
             try:
@@ -77,7 +90,7 @@ class Playlist(Sequence):
         # than 100 songs inside a playlist, so we need to add further requests
         # to gather all of them
         if continuation:
-            load_more_url, headers, data = self._build_continuation_url(continuation)
+            load_more_url, headers, data = await self._build_continuation_url(continuation)
         else:
             load_more_url, headers, data = None, None, None
 
@@ -85,7 +98,7 @@ class Playlist(Sequence):
             logger.debug("load more url: %s", load_more_url)
             # requesting the next page of videos with the url generated from the
             # previous page, needs to be a post
-            req = request.post(load_more_url, extra_headers=headers, data=data)
+            req = await request.post(load_more_url, self._session, extra_headers=headers, data=data)
             # extract up to 100 songs from the page loaded
             # returns another continuation if more videos are available
             videos_urls, continuation = self._extract_videos(req)
@@ -99,13 +112,13 @@ class Playlist(Sequence):
             yield videos_urls
 
             if continuation:
-                load_more_url, headers, data = self._build_continuation_url(
+                load_more_url, headers, data = await self._build_continuation_url(
                     continuation
                 )
             else:
                 load_more_url, headers, data = None, None, None
 
-    def _build_continuation_url(self, continuation: str) -> Tuple[str, dict, dict]:
+    async def _build_continuation_url(self, continuation: str) -> Tuple[str, dict, dict]:
         """Helper method to build the url and headers required to request
         the next page of videos
 
@@ -120,11 +133,12 @@ class Playlist(Sequence):
                 # was changed to this format (and post requests)
                 # between 2021.03.02 and 2021.03.03
                 "https://www.youtube.com/youtubei/v1/browse?key="
-                f"{self.yt_api_key}"
+                f"{await self.yt_api_key}"
             ),
             {
                 "X-YouTube-Client-Name": "1",
                 "X-YouTube-Client-Version": "2.20200720.00.02",
+                "X-Origin": "https://www.youtube.com"
             },
             # extra data required for post request
             {
@@ -135,6 +149,38 @@ class Playlist(Sequence):
                         "clientVersion": "2.20200720.00.02"
                     }
                 }
+                # {"context":
+                #     {"client":{
+                #         "hl":"en",
+                #         "gl":"GB",
+                #         "remoteHost":"2a02:c7f:5c87:1500:5127:b7eb:147b:9e41",
+                #         "deviceMake":"Apple",
+                #         "deviceModel":"",
+                #         "visitorData":"Cgt5TWhvME81RnU4YyiLla2DBg%3D%3D",
+                #         "userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15,gzip(gfe)",
+                #         "clientName":"WEB",
+                #         "clientVersion":"2.20210404.08.00",
+                #         "osName":"Macintosh",
+                #         "osVersion":"10_14",
+                #         "originalUrl":"https://www.youtube.com/",
+                #         "platform":"DESKTOP",
+                #         "clientFormFactor":"UNKNOWN_FORM_FACTOR",
+                #         "timeZone":"Europe/London",
+                #         "browserName":"Safari",
+                #         "browserVersion":"12.0",
+                #         "screenWidthPoints":1087,"screenHeightPoints":353,
+                #         "screenPixelDensity":1,
+                #         "screenDensityFloat":1,
+                #         "utcOffsetMinutes":60,
+                #         "userInterfaceTheme":"USER_INTERFACE_THEME_LIGHT",
+                #         "mainAppWebInfo":{"graftUrl":"https://www.youtube.com/playlist?list=PL6Pqa2e9AspE6lbr24yQpLWI1wVFY7o5H","webDisplayMode":"WEB_DISPLAY_MODE_BROWSER"}},
+                #     "user":{"lockedSafetyMode":false},
+                #     "request":{"useSsl":true,"internalExperimentFlags":[],"consistencyTokenJars":[]},
+                #     "clientScreenNonce":"MC4yMDg3NjY1MjY1NDYyNjA2",
+                #     "clickTracking":{"clickTrackingParams":"CDMQ7zsYACITCN6D4f_V5-8CFVGx1QodwEkO5w=="},
+                #     },
+                # "continuation":"4qmFsgJhEiRWTFBMNlBxYTJlOUFzcEU2bGJyMjR5UXBMV0kxd1ZGWTdvNUgaFENBRjZCbEJVT2tOSFVRJTNEJTNEmgIiUEw2UHFhMmU5QXNwRTZsYnIyNHlRcExXSTF3VkZZN281SA%3D%3D"
+                # }
             }
         )
 
@@ -205,7 +251,7 @@ class Playlist(Sequence):
             continuation,
         )
 
-    def trimmed(self, video_id: str) -> Iterable[str]:
+    async def trimmed(self, video_id: str) -> Iterable[str]:
         """Retrieve a list of YouTube video URLs trimmed at the given video ID
 
         i.e. if the playlist has video IDs 1,2,3,4 calling trimmed(3) returns
@@ -216,45 +262,47 @@ class Playlist(Sequence):
         :returns:
             List of video URLs from the playlist trimmed at the given ID
         """
-        for page in self._paginate(until_watch_id=video_id):
-            yield from (self._video_url(watch_path) for watch_path in page)
+        for page in await self._paginate(until_watch_id=video_id):
+            yield (self._video_url(watch_path) for watch_path in page)
 
-    @property  # type: ignore
-    @cache
-    def video_urls(self) -> List[str]:
-        """Complete links of all the videos in playlist
+    # @async_cached_property  # type: ignore
+    # async def video_urls(self) -> List[str]:
+    #     """Complete links of all the videos in playlist
 
-        :rtype: List[str]
-        :returns: List of video URLs
-        """
-        return [
-            self._video_url(video)
-            for page in list(self._paginate())
-            for video in page
-        ]
+    #     :rtype: List[str]
+    #     :returns: List of video URLs
+    #     """
+    #     return [
+    #         self._video_url(video)
+    #         async for page in await self._paginate()
+    #         for video in page
+    #     ]
 
-    @property
-    def videos(self) -> Iterable[YouTube]:
+    async def video_urls(self) -> Iterable[str]:
+        async for page in self._paginate():
+            for vid in page:
+                yield self._video_url(vid)
+
+    async def videos(self) -> Iterable[YouTube]:
         """Yields YouTube objects of videos in this playlist
 
         :Yields: YouTube
         """
-        yield from (YouTube(url) for url in self.video_urls)
+        yield (YouTube(url) for url in await self.video_urls)
 
-    def __getitem__(self, i: Union[slice, int]) -> Union[str, List[str]]:
-        return self.video_urls[i]
+    # def __getitem__(self, i: Union[slice, int]) -> Union[str, List[str]]:
+    #     return self.video_urls[i]
 
-    def __len__(self) -> int:
-        return len(self.video_urls)
+    # def __len__(self) -> int:
+    #     return len(self.video_urls)
 
-    def __repr__(self) -> str:
-        return f"{self.video_urls}"
+    # def __repr__(self) -> str:
+    #     return f"{self.video_urls}"
 
-    @property
-    @cache
-    def last_updated(self) -> Optional[date]:
+    @async_cached_property
+    async def last_updated(self) -> Optional[date]:
         date_match = re.search(
-            r"Last updated on (\w{3}) (\d{1,2}), (\d{4})", self.html
+            r"Last updated on (\w{3}) (\d{1,2}), (\d{4})", await self.html
         )
         if date_match:
             month, day, year = date_match.groups()
@@ -263,16 +311,15 @@ class Playlist(Sequence):
             ).date()
         return None
 
-    @property
-    @cache
-    def title(self) -> Optional[str]:
+    @async_cached_property
+    async def title(self) -> Optional[str]:
         """Extract playlist title
 
         :return: playlist title (name)
         :rtype: Optional[str]
         """
         pattern = r"<title>(.+?)</title>"
-        return regex_search(pattern, self.html, 1).replace("- YouTube", "").strip()
+        return regex_search(pattern, await self.html, 1).replace("- YouTube", "").strip()
 
     @staticmethod
     def _video_url(watch_path: str):

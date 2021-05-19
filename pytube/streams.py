@@ -10,12 +10,19 @@ separately).
 import logging
 import os
 from datetime import datetime
-from typing import BinaryIO, Dict, Optional, Tuple
+from typing import BinaryIO
+from typing import Dict
+from typing import Optional
+from typing import Tuple
 from urllib.error import HTTPError
 from urllib.parse import parse_qs
+from aiohttp import ClientSession
+from async_property import async_property
 
-from pytube import extract, request
-from pytube.helpers import safe_filename, target_directory
+from pytube import extract
+from pytube import request
+from pytube.helpers import safe_filename
+from pytube.helpers import target_directory
 from pytube.itags import get_format_profile
 from pytube.monostate import Monostate
 
@@ -26,7 +33,7 @@ class Stream:
     """Container for stream manifest data."""
 
     def __init__(
-        self, stream: Dict, player_config_args: Dict, monostate: Monostate
+        self, stream: Dict, player_config_args: Dict, monostate: Monostate, session: ClientSession
     ):
         """Construct a :class:`Stream <Stream>`.
 
@@ -43,6 +50,7 @@ class Stream:
         # (Borg pattern).
         self._monostate = monostate
 
+        self._session = session if session else request.createSession()
         self.url = stream["url"]  # signed download url
         self.itag = int(
             stream["itag"]
@@ -140,8 +148,8 @@ class Stream:
             audio = self.codecs[0]
         return video, audio
 
-    @property
-    def filesize(self) -> int:
+    @async_property
+    async def filesize(self) -> int:
         """File size of the media stream in bytes.
 
         :rtype: int
@@ -150,11 +158,11 @@ class Stream:
         """
         if self._filesize is None:
             try:
-                self._filesize = request.filesize(self.url)
+                self._filesize = await request.filesize(self.url, self._session)
             except HTTPError as e:
                 if e.code != 404:
                     raise
-                self._filesize = request.seq_filesize(self.url)
+                self._filesize = await request.seq_filesize(self.url, self._session)
         return self._filesize
 
     @property
@@ -167,8 +175,8 @@ class Stream:
         """
         return self._monostate.title or "Unknown YouTube Video Title"
 
-    @property
-    def filesize_approx(self) -> int:
+    @async_property
+    async def filesize_approx(self) -> int:
         """Get approximate filesize of the video
 
         Falls back to HTTP call if there is not sufficient information to approximate
@@ -182,7 +190,7 @@ class Stream:
                 (self._monostate.duration * self.bitrate) / bits_in_byte
             )
 
-        return self.filesize
+        return (await self.filesize)
 
     @property
     def expiration(self) -> datetime:
@@ -200,7 +208,7 @@ class Stream:
         filename = safe_filename(self.title)
         return f"{filename}.{self.subtype}"
 
-    def download(
+    async def download(
         self,
         output_path: Optional[str] = None,
         filename: Optional[str] = None,
@@ -243,18 +251,19 @@ class Stream:
             filename_prefix=filename_prefix,
         )
 
-        if skip_existing and self.exists_at_path(file_path):
+        if skip_existing and await self.exists_at_path(file_path):
             logger.debug(f'file {file_path} already exists, skipping')
             self.on_complete(file_path)
             return file_path
 
-        bytes_remaining = self.filesize
-        logger.debug(f'downloading ({self.filesize} total bytes) file to {file_path}')
+        bytes_remaining = (await self.filesize)
+        logger.debug(f'downloading ({(await self.filesize)} total bytes) file to {file_path}')
 
         with open(file_path, "wb") as fh:
             try:
-                for chunk in request.stream(
+                async for chunk in request.stream(
                     self.url,
+                    self._session,
                     timeout=timeout,
                     max_retries=max_retries
                 ):
@@ -266,8 +275,9 @@ class Stream:
                 if e.code != 404:
                     raise
                 # Some adaptive streams need to be requested with sequence numbers
-                for chunk in request.seq_stream(
+                async for chunk in request.seq_stream(
                     self.url,
+                    self._session,
                     timeout=timeout,
                     max_retries=max_retries
                 ):
@@ -292,23 +302,23 @@ class Stream:
             filename = f"{safe_filename(filename_prefix)}{filename}"
         return os.path.join(target_directory(output_path), filename)
 
-    def exists_at_path(self, file_path: str) -> bool:
+    async def exists_at_path(self, file_path: str) -> bool:
         return (
             os.path.isfile(file_path)
-            and os.path.getsize(file_path) == self.filesize
+            and os.path.getsize(file_path) == (await self.filesize)
         )
 
-    def stream_to_buffer(self, buffer: BinaryIO) -> None:
+    async def stream_to_buffer(self, buffer: BinaryIO) -> None:
         """Write the media stream to buffer
 
         :rtype: io.BytesIO buffer
         """
-        bytes_remaining = self.filesize
+        bytes_remaining = (await self.filesize)
         logger.info(
-            "downloading (%s total bytes) file to buffer", self.filesize,
+            "downloading (%s total bytes) file to buffer", (await self.filesize),
         )
 
-        for chunk in request.stream(self.url):
+        async for chunk in request.stream(self.url, self._session):
             # reduce the (bytes) remainder by the length of the chunk.
             bytes_remaining -= len(chunk)
             # send to the on_progress callback.

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """This module contains the YouTubeMetadata class."""
 import json
-from typing import Dict, List, Optional
+from typing import Dict
+from typing import List
+from typing import Optional
 
 
 class YouTubeMetadata:
