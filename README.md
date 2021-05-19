@@ -10,12 +10,12 @@
 
 ### Actively soliciting contributers!
 
-Have ideas for how pytube can be improved? Feel free to open an issue or a pull
+Have ideas for how *pytube async* can be improved? Feel free to open an issue or a pull
 request!
 
 # pytube
 
-*pytube* async is a fork of pytube - [pytube.io](https://pytube.io) 
+*pytube async* is a fork of pytube - [pytube.io](https://pytube.io) 
 
 ## Documentation
 
