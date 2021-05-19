@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Implements a simple wrapper around urlopen."""
 import json
 import logging
@@ -17,7 +16,6 @@ from pytube.exceptions import RegexMatchError, MaxRetriesExceeded, PytubeError
 from pytube.helpers import regex_search
 
 logger = logging.getLogger(__name__)
-default_chunk_size = 4096  # 4kb
 default_range_size = 9437184  # 9MB
 
 
@@ -192,8 +190,12 @@ async def stream(
                     timeout=timeout
                 )
             except URLError as e:
+                # We only want to skip over timeout errors, and
+                # raise any other URLError exceptions
                 if isinstance(e.reason, socket.timeout):
                     pass
+                else:
+                    raise
             else:
                 # On a successful request, break from loop
                 break

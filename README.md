@@ -3,10 +3,8 @@
     <a href="#"><img src="https://assets.nickficano.com/gh-pytube.min.svg" width="456" height="143" alt="pytube logo" /></a>
   </p>
   <p align="center">
-	<a href="https://pypi.org/project/pytube/"><img src="https://img.shields.io/pypi/dm/pytube?style=flat-square" alt="pypi"/></a>
-	<a href="https://python-pytube.readthedocs.io/en/latest/"><img src="https://readthedocs.org/projects/python-pytube/badge/?version=latest&style=flat-square" /></a>
-    <a href="https://codecov.io/gh/pytube/pytube" aria-label="coverage"><img src="https://img.shields.io/codecov/c/github/pytube/pytube?style=flat-square" /></a>
-	<a href="https://pypi.org/project/pytube/"><img src="https://img.shields.io/pypi/v/pytube?style=flat-square" /></a>
+	<a href="https://pypi.org/project/pytube-async/"><img src="https://img.shields.io/pypi/dm/pytube?style=flat-square" alt="pypi"/></a>
+	<a href="https://pypi.org/project/pytube-async/"><img src="https://img.shields.io/pypi/v/pytube?style=flat-square" /></a>
   </p>
 </div>
 
@@ -17,35 +15,36 @@ request!
 
 # pytube
 
-*pytube* is a very serious, lightweight, dependency-free Python library (and
-command-line utility) for downloading YouTube Videos.
+*pytube* async is a fork of pytube - [pytube.io](https://pytube.io) 
 
 ## Documentation
 
-Detailed documentation about how to use the library can be found on our
-[readthedocs](https://python-pytube.readthedocs.io) page. This is recommended
-for most use cases. If you just want to quickly download a single video,
-the [quickstart](#Quickstart) guide below might be what you're looking for.
+The code is the Documentation...
+
+Pytube Async's parent's documentation is useful and can be found on 
+[pytube.io](https://pytube.io). 
+
+Note: almost every property/method is an async method.
 
 ## Description
 
+Note: this is not maintained as much as the parent project, only when things break - open an issue if you find a bug.
+
 YouTube is the most popular video-sharing platform in the world and as a hacker
 you may encounter a situation where you want to script something to download
-videos. For this I present to you *pytube*.
+videos. For this I present to you *pytube async*.
 
-*pytube* is a lightweight library written in Python. It has no third party
+*pytube async* is a lightweight library written in Python. It has no third party
 dependencies and aims to be highly reliable.
 
-*pytube* also makes pipelining easy, allowing you to specify callback functions
+*pytube async* also makes pipelining easy, allowing you to specify callback functions
 for different download events, such as  ``on progress`` or ``on complete``.
-
-Finally *pytube* also includes a command-line utility, allowing you to quickly
-download videos right from terminal.
 
 ## Features
 
+- asyncio support!!
 - Support for both progressive & DASH streams
-- Support for downloading complete playlist
+- Support for downloading complete playlists
 - Easily register ``on_download_progress`` & ``on_download_complete`` callbacks
 - Command-line interfaced included
 - Caption track support
@@ -56,9 +55,7 @@ download videos right from terminal.
 
 ## Quickstart
 
-This guide is only meant to cover the most basic usage of the library. For more
-detailed information, please refer to our
-[readthedocs](https://python-pytube.readthedocs.io) page.
+This guide is only meant to cover the most basic usage of the library.
 
 ### Installation
 
@@ -69,14 +66,14 @@ for how to install python at https://python.org.
 To install from pypi with pip:
 
 ```bash
-$ python -m pip install pytube
+$ python -m pip install pytube-async
 ```
 
 Sometime, the pypi release becomes slightly outdated. To install from the
 source with pip:
 
 ```bash
-$ python -m pip install git+https://github.com/pytube/pytube
+$ python -m pip install git+https://github.com/msemple1111/pytube
 ```
 
 ### Using pytube in a python script
@@ -84,28 +81,12 @@ $ python -m pip install git+https://github.com/pytube/pytube
 To download a video using the library in a script, you'll need to first import
 the YouTube class from the library, and pass it an argument of the video url.
 From there, you can access the streams and download them.
+Note: async code needs to run inside the event loop
 
 ```python
  >>> from pytube import YouTube
- >>> YouTube('https://youtu.be/2lAe1cqCOXo').streams.first().download()
- >>> yt = YouTube('http://youtube.com/watch?v=2lAe1cqCOXo')
- >>> yt.streams
-  ... .filter(progressive=True, file_extension='mp4')
-  ... .order_by('resolution')
-  ... .desc()
-  ... .first()
-  ... .download()
-```
-
-### Using the command-line interface
-
-Using the CLI is extremely straightforward as well. To download a video at the
-highest progressive quality, you can use the following command:
-```bash
-$ pytube https://youtube.com/watch?v=2lAe1cqCOXo
-```
-
-You can also do the same for a playlist:
-```bash
-$ pytube https://www.youtube.com/playlist?list=PLS1QulWo1RIaJECMeUT4LFwJ-ghgoSH6n
+ >>> yt = YouTube('https://youtu.be/2lAe1cqCOXo')
+ >>> streams = await yt.streams
+ >>> video = streams.filter(progressive=True, file_extension='mp4').first()
+ >>> await video.download()
 ```

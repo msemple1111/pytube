@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 This module implements the core developer interface for pytube.
 
@@ -228,7 +227,7 @@ class YouTube:
             return self._fmt_streams
 
         self._fmt_streams = []
-        # https://github.com/nficano/pytube/issues/165
+        # https://github.com/pytube/pytube/issues/165
         stream_maps = ["url_encoded_fmt_stream_map"]
         if "adaptive_fmts" in (await self.player_config_args):
             stream_maps.append("adaptive_fmts")
@@ -442,6 +441,20 @@ class YouTube:
         :rtype: List[str]
         """
         return (await self.player_response).get('videoDetails', {}).get('keywords', [])
+
+    @property
+    def channel_id(self) -> str:
+        """Get the video poster's channel id.
+        :rtype: str
+        """
+        return self.player_response.get('videoDetails', {}).get('channelId', None)
+
+    @property
+    def channel_url(self) -> str:
+        """Construct the channel url for the video's poster from the channel id.
+        :rtype: str
+        """
+        return f'https://www.youtube.com/channel/{self.channel_id}'
 
     @property
     def metadata(self) -> Optional[YouTubeMetadata]:

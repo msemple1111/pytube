@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""This module contains setup instructions for pytube3."""
+"""This module contains setup instructions for pytube."""
 import codecs
 import os
 
@@ -17,25 +16,20 @@ with open(os.path.join(here, "pytube", "version.py")) as fp:
 setup(
     name="pytube",
     version=__version__,  # noqa: F821
-    author="Nick Ficano, Harold Martin",
-    author_email="nficano@gmail.com, harold.martin@gmail.com",
+    author="Ronnie Ghose, Taylor Fox Dahlin, Nick Ficano",
+    author_email="hey@pytube.io",
     packages=["pytube", "pytube.contrib"],
     package_data={"": ["LICENSE"],},
-    url="https://github.com/nficano/pytube",
-    license="MIT",
+    url="https://github.com/msemple1111/pytube",
+    license="The Unlicense (Unlicense)",
     entry_points={
         "console_scripts": [
-            "pytube = pytube.cli:main", "pytube3 = pytube.cli:main"],},
+            "pytube = pytube.cli:main"],},
     classifiers=[
-        "Development Status :: 5 - Production/Stable",
-        "Environment :: Console",
+        "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: MIT License",
         "Natural Language :: English",
-        "Operating System :: MacOS",
-        "Operating System :: Microsoft",
-        "Operating System :: POSIX",
-        "Operating System :: Unix",
+        "Operating System :: OS Independent",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
@@ -47,15 +41,14 @@ setup(
         "Topic :: Terminals",
         "Topic :: Utilities",
     ],
-    description=("Python 3 library for downloading YouTube Videos."),
+    description=("Python 3 asyncio library for downloading YouTube Videos."),
     include_package_data=True,
     long_description_content_type="text/markdown",
     long_description=long_description,
     zip_safe=True,
     python_requires=">=3.6",
     project_urls={
-        "Bug Reports": "https://github.com/nficano/pytube/issues",
-        "Read the Docs": "https://python-pytube.readthedocs.io/en/latest",
+        "Bug Reports": "https://github.com/msemple1111/pytube/issues",
     },
     keywords=["youtube", "download", "video", "stream",],
 )

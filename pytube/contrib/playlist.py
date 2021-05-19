@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
 """Module to download a complete playlist from a youtube channel."""
 import json
 import logging
-import re
 from collections.abc import Sequence
 from datetime import date
 from datetime import datetime
@@ -33,15 +31,27 @@ class Playlist:
         if proxies:
             install_proxy(proxies)
         self._session = session if session else request.createSession()
+
+        self._input_url = url
+
         # These need to be initialized as None for the properties.
         self._html = None
         self._ytcfg = None
+        self._initial_data = None
+        self._sidebar_info = None
 
-        self.playlist_id = extract.playlist_id(url)
+        self._playlist_id = None
 
-        self.playlist_url = (
-            f"https://www.youtube.com/playlist?list={self.playlist_id}"
-        )
+    @property
+    def playlist_id(self):
+        if self._playlist_id:
+            return self._playlist_id
+        self._playlist_id = extract.playlist_id(self._input_url)
+        return self._playlist_id
+
+    @property
+    def playlist_url(self):
+        return f"https://www.youtube.com/playlist?list={self.playlist_id}"
 
     @async_property
     async def html(self):
@@ -60,6 +70,23 @@ class Playlist:
     @async_property
     async def yt_api_key(self):
         return (await self.ytcfg)['INNERTUBE_API_KEY']
+        
+    @async_property
+    async def initial_data(self):
+        if self._initial_data:
+            return self._initial_data
+        else:
+            self._initial_data = extract.initial_data(await self.html)
+            return self._initial_data
+
+    @async_property
+    async def sidebar_info(self):
+        if self._sidebar_info:
+            return self._sidebar_info
+        else:
+            self._sidebar_info = (await self.initial_data)['sidebar'][
+                'playlistSidebarRenderer']['items']
+            return self._sidebar_info
 
     async def _paginate(
         self, until_watch_id: Optional[str] = None
@@ -149,38 +176,6 @@ class Playlist:
                         "clientVersion": "2.20200720.00.02"
                     }
                 }
-                # {"context":
-                #     {"client":{
-                #         "hl":"en",
-                #         "gl":"GB",
-                #         "remoteHost":"2a02:c7f:5c87:1500:5127:b7eb:147b:9e41",
-                #         "deviceMake":"Apple",
-                #         "deviceModel":"",
-                #         "visitorData":"Cgt5TWhvME81RnU4YyiLla2DBg%3D%3D",
-                #         "userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15,gzip(gfe)",
-                #         "clientName":"WEB",
-                #         "clientVersion":"2.20210404.08.00",
-                #         "osName":"Macintosh",
-                #         "osVersion":"10_14",
-                #         "originalUrl":"https://www.youtube.com/",
-                #         "platform":"DESKTOP",
-                #         "clientFormFactor":"UNKNOWN_FORM_FACTOR",
-                #         "timeZone":"Europe/London",
-                #         "browserName":"Safari",
-                #         "browserVersion":"12.0",
-                #         "screenWidthPoints":1087,"screenHeightPoints":353,
-                #         "screenPixelDensity":1,
-                #         "screenDensityFloat":1,
-                #         "utcOffsetMinutes":60,
-                #         "userInterfaceTheme":"USER_INTERFACE_THEME_LIGHT",
-                #         "mainAppWebInfo":{"graftUrl":"https://www.youtube.com/playlist?list=PL6Pqa2e9AspE6lbr24yQpLWI1wVFY7o5H","webDisplayMode":"WEB_DISPLAY_MODE_BROWSER"}},
-                #     "user":{"lockedSafetyMode":false},
-                #     "request":{"useSsl":true,"internalExperimentFlags":[],"consistencyTokenJars":[]},
-                #     "clientScreenNonce":"MC4yMDg3NjY1MjY1NDYyNjA2",
-                #     "clickTracking":{"clickTrackingParams":"CDMQ7zsYACITCN6D4f_V5-8CFVGx1QodwEkO5w=="},
-                #     },
-                # "continuation":"4qmFsgJhEiRWTFBMNlBxYTJlOUFzcEU2bGJyMjR5UXBMV0kxd1ZGWTdvNUgaFENBRjZCbEJVT2tOSFVRJTNEJTNEmgIiUEw2UHFhMmU5QXNwRTZsYnIyNHlRcExXSTF3VkZZN281SA%3D%3D"
-                # }
             }
         )
 
@@ -222,7 +217,7 @@ class Playlist:
                     'appendContinuationItemsAction']['continuationItems']
                 videos = important_content
             except (KeyError, IndexError, TypeError) as p:
-                print(p)
+                logger.info(p)
                 return [], None
 
         try:
@@ -286,7 +281,8 @@ class Playlist:
     async def videos(self) -> Iterable[YouTube]:
         """Yields YouTube objects of videos in this playlist
 
-        :Yields: YouTube
+        :rtype: List[YouTube]
+        :returns: List of YouTube
         """
         yield (YouTube(url) for url in await self.video_urls)
 
@@ -319,7 +315,71 @@ class Playlist:
         :rtype: Optional[str]
         """
         pattern = r"<title>(.+?)</title>"
-        return regex_search(pattern, await self.html, 1).replace("- YouTube", "").strip()
+        # return regex_search(pattern, await self.html, 1).replace("- YouTube", "").strip()
+        return (await self.sidebar_info)[0]['playlistSidebarPrimaryInfoRenderer'][
+            'title']['runs'][0]['text']
+
+    @async_property
+    async def description(self) -> str:
+        return (await self.sidebar_info)[0]['playlistSidebarPrimaryInfoRenderer'][
+            'description']['simpleText']
+
+    @async_property
+    async def length(self):
+        """Extract the number of videos in the playlist.
+
+        :return: Playlist video count
+        :rtype: int
+        """
+        count_text = (await self.sidebar_info)[0]['playlistSidebarPrimaryInfoRenderer'][
+            'stats'][0]['runs'][0]['text']
+        return int(count_text)
+
+    @async_property
+    async def views(self):
+        """Extract view count for playlist.
+
+        :return: Playlist view count
+        :rtype: int
+        """
+        # "1,234,567 views"
+        views_text = (await self.sidebar_info)[0]['playlistSidebarPrimaryInfoRenderer'][
+            'stats'][1]['simpleText']
+        # "1,234,567"
+        count_text = views_text.split()[0]
+        # "1234567"
+        count_text = count_text.replace(',', '')
+        return int(count_text)
+
+    @async_property
+    async def owner(self):
+        """Extract the owner of the playlist.
+
+        :return: Playlist owner name.
+        :rtype: str
+        """
+        return (await self.sidebar_info)[1]['playlistSidebarSecondaryInfoRenderer'][
+            'videoOwner']['videoOwnerRenderer']['title']['runs'][0]['text']
+
+    @async_property
+    async def owner_id(self):
+        """Extract the channel_id of the owner of the playlist.
+
+        :return: Playlist owner's channel ID.
+        :rtype: str
+        """
+        return (await self.sidebar_info)[1]['playlistSidebarSecondaryInfoRenderer'][
+            'videoOwner']['videoOwnerRenderer']['title']['runs'][0][
+            'navigationEndpoint']['browseEndpoint']['browseId']
+
+    @async_property
+    async def owner_url(self):
+        """Create the channel url of the owner of the playlist.
+
+        :return: Playlist owner's channel url.
+        :rtype: str
+        """
+        return f'https://www.youtube.com/channel/{(await self.owner_id)}'
 
     @staticmethod
     def _video_url(watch_path: str):
