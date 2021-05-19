@@ -50,5 +50,9 @@ setup(
     project_urls={
         "Bug Reports": "https://github.com/msemple1111/pytube/issues",
     },
+    install_requires=[
+        'aiohttp',
+        'async_property'
+      ],
     keywords=["youtube", "download", "video", "stream",],
 )
