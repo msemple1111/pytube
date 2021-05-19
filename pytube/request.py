@@ -17,6 +17,7 @@ from pytube.helpers import regex_search
 
 logger = logging.getLogger(__name__)
 default_range_size = 9437184  # 9MB
+default_chunk_size = 4096  # 4kb
 
 
 async def _execute_request(
