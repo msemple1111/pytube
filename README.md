@@ -26,6 +26,24 @@ Pytube Async's parent's documentation is useful and can be found on
 
 Note: almost every property/method is an async method.
 
+
+### Installation
+
+Pytube requires an installation of python 3.6 or greater, as well as pip.
+Pip is typically bundled with python installations, and you can find options
+for how to install python at https://python.org.
+
+To install from source with pip:
+
+```bash
+$ python -m pip install git+https://github.com/msemple1111/pytube
+```
+
+on windows:
+```bash
+py -m pip install git+https://github.com/msemple1111/pytube
+```
+
 ## Description
 
 Note: this is not maintained as much as the parent project, only when things break - open an issue if you find a bug.
@@ -57,17 +75,6 @@ for different download events, such as  ``on progress`` or ``on complete``.
 
 This guide is only meant to cover the most basic usage of the library.
 
-### Installation
-
-Pytube requires an installation of python 3.6 or greater, as well as pip.
-Pip is typically bundled with python installations, and you can find options
-for how to install python at https://python.org.
-
-To install from source with pip:
-
-```bash
-$ python -m pip install git+https://github.com/msemple1111/pytube
-```
 
 ### Using pytube in a python script
 
