@@ -39,7 +39,7 @@ To install from source with pip:
 $ python -m pip install git+https://github.com/msemple1111/pytube
 ```
 
-on windows:
+on windows, open cmd.exe and run:
 ```bash
 py -m pip install git+https://github.com/msemple1111/pytube
 ```
