@@ -206,12 +206,14 @@ class YouTube:
         self._player_config_args = await self.vid_info
         # On pre-signed videos, we need to use get_ytplayer_config to fix
         #  the player_response item
-        if 'streamingData' not in (await self.player_config_args)['player_response']:
+        if 'player_response'  not in self._player_config_args:
+            self._player_config_args['player_response'] = {}
+        if 'streamingData' not in self._player_config_args['player_response']:
             config_response = get_ytplayer_config(await self.watch_html)
             if 'args' in config_response:
-                (await self.player_config_args)['player_response'] = config_response['args']['player_response']  # noqa: E501
+                self._player_config_args['player_response'] = config_response['args']['player_response']  # noqa: E501
             else:
-                (await self.player_config_args)['player_response'] = config_response
+                self._player_config_args['player_response'] = config_response
 
         return self._player_config_args
 
