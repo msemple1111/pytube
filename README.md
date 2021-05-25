@@ -16,6 +16,7 @@ request!
 # pytube
 
 *pytube async* is a fork of pytube - [pytube.io](https://pytube.io) 
+Note: this is not actively maintained, only occasionally 
 
 ## Documentation
 
@@ -32,6 +33,8 @@ Note: almost every property/method is an async method.
 Pytube requires an installation of python 3.6 or greater, as well as pip.
 Pip is typically bundled with python installations, and you can find options
 for how to install python at https://python.org.
+
+Note: i will put this on pypy sometime soonish
 
 To install from source with pip:
 
