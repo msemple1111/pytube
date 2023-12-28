@@ -17,7 +17,9 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs
 from aiohttp import ClientSession
 from async_property import async_property
-
+import aiofiles as aiofs
+import aiofile as aiof
+from aiofiles.threadpool.binary import AsyncFileIO
 from pytube import extract
 from pytube import request
 from pytube.helpers import safe_filename
@@ -255,7 +257,7 @@ class Stream:
 
         if skip_existing and await self.exists_at_path(file_path):
             logger.debug(f'file {file_path} already exists, skipping')
-            self.on_complete(file_path)
+            await self.on_complete(file_path)
             return file_path
 
         bytes_remaining = (await self.filesize)
@@ -272,7 +274,7 @@ class Stream:
                     # reduce the (bytes) remainder by the length of the chunk.
                     bytes_remaining -= len(chunk)
                     # send to the on_progress callback.
-                    self.on_progress(chunk, fh, bytes_remaining)
+                    await self.on_progress(chunk, fh, bytes_remaining)
             except HTTPError as e:
                 if e.code != 404:
                     raise
@@ -286,8 +288,8 @@ class Stream:
                     # reduce the (bytes) remainder by the length of the chunk.
                     bytes_remaining -= len(chunk)
                     # send to the on_progress callback.
-                    self.on_progress(chunk, fh, bytes_remaining)
-        self.on_complete(file_path)
+                    await self.on_progress(chunk, fh, bytes_remaining)
+        await self.on_complete(file_path)
         return file_path
 
     def get_file_path(
@@ -324,11 +326,11 @@ class Stream:
             # reduce the (bytes) remainder by the length of the chunk.
             bytes_remaining -= len(chunk)
             # send to the on_progress callback.
-            self.on_progress(chunk, buffer, bytes_remaining)
-        self.on_complete(None)
+            await self.on_progress(chunk, buffer, bytes_remaining)
+        await self.on_complete(None)
 
-    def on_progress(
-        self, chunk: bytes, file_handler: BinaryIO, bytes_remaining: int
+    async def on_progress(
+        self, chunk: bytes, file_handler:BinaryIO, bytes_remaining: int
     ):
         """On progress callback function.
 
@@ -349,12 +351,14 @@ class Stream:
         :rtype: None
 
         """
-        file_handler.write(chunk)
-        logger.debug("download remaining: %s", bytes_remaining)
-        if self._monostate.on_progress:
-            self._monostate.on_progress(self, chunk, bytes_remaining)
+        
+        async with aiof.async_open(file_handler.name, mode="ab+") as fp:
+            await fp.write(chunk)
+            logger.debug("download remaining: %s", bytes_remaining)
+            if self._monostate.on_progress:
+                await self._monostate.on_progress(self, chunk, bytes_remaining)
 
-    def on_complete(self, file_path: Optional[str]):
+    async def on_complete(self, file_path: Optional[str]):
         """On download complete handler function.
 
         :param file_path:
@@ -368,7 +372,7 @@ class Stream:
         on_complete = self._monostate.on_complete
         if on_complete:
             logger.debug("calling on_complete callback %s", on_complete)
-            on_complete(self, file_path)
+            await on_complete(self, file_path)
 
     def __repr__(self) -> str:
         """Printable object representation.
