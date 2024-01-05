@@ -48,6 +48,7 @@ async def _execute_request(
             if resp.status == 400:
                 raise PytubeError(f"Not 200 code, code={resp.status}")
             else:
+                resp.status = 206
                 return resp
         except aiohttp.client_exceptions.InvalidURL:
             await session.close()
@@ -162,17 +163,21 @@ async def stream(
     url,
     session,
     timeout=900,
-    max_retries=0
+    max_retries=0,
+    current_downloaded: int =0,
+    stream_filesize: int =0
 ):
     """Read the response in chunks.
     :param str url: The URL to perform the GET request for.
     :rtype: Iterable[bytes]
     """
-    file_size: int = default_range_size  # fake filesize to start
-    downloaded = 0
+    
+    file_size: int = default_range_size if stream_filesize == 0 else stream_filesize # fake filesize to start otherwise use existing filesize
+    downloaded = current_downloaded 
     while downloaded < file_size:
+        print("Im not here hahah ")
         stop_pos = min(downloaded + default_range_size, file_size) - 1
-        range_header = f"bytes={downloaded}-{stop_pos}"
+        range_header = f"bytes={downloaded}-"
         tries = 0
 
         # Attempt to make the request multiple times as necessary.
@@ -187,8 +192,10 @@ async def stream(
                     url,
                     session,
                     method="GET",
-                    headers={"Range": range_header},
-                    timeout=timeout
+                    headers={"Range": range_header
+                             },
+                    timeout=timeout,
+                    
                 )
             except URLError as e:
                 # We only want to skip over timeout errors, and
@@ -205,6 +212,7 @@ async def stream(
         if file_size == default_range_size:
             try:
                 content_range = response.headers["Content-Range"]
+                print("voici le content range:{}".format(content_range))
                 file_size = int(content_range.split("/")[1])
             except (KeyError, IndexError, ValueError) as e:
                 logger.error(e)
@@ -292,4 +300,4 @@ async def head(url, session):
     return {k.lower(): v for k, v in response_headers.items()}
 
 def createSession():
-    return aiohttp.ClientSession()
+    return aiohttp.ClientSession(trust_env=True)
