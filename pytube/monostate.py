@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-from typing import Any
-from typing import Callable
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional
 
 
 class Monostate:
     def __init__(
         self,
-        on_progress: Optional[Callable[[Any, bytes, int], None]],
-        on_complete: Optional[Callable[[Any, Optional[str]], None]],
+        on_progress: Optional[Callable[[Any, bytes, int], Awaitable[None]]],
+        on_complete: Optional[Callable[[Any, Optional[str]], Awaitable[None]]],
         title: Optional[str] = None,
         duration: Optional[int] = None,
     ):

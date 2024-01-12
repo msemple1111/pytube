@@ -253,26 +253,26 @@ class Stream:
             filename_prefix=filename_prefix,
         )
 
-        if skip_existing and await self.exists_at_path(file_path):
+        if skip_existing and (await self.exists_at_path(file_path)):
             logger.debug(f'file {file_path} already exists, skipping')
-            self.on_complete(file_path)
+            await self.on_complete(file_path)
             return file_path
 
         bytes_remaining = (await self.filesize)
         logger.debug(f'downloading ({(await self.filesize)} total bytes) file to {file_path}')
 
-        with open(file_path, "wb") as fh:
+        with open(file_path, "wb") as file_handler:
             try:
                 async for chunk in request.stream(
                     self.url,
                     self._session,
-                    timeout=timeout,
-                    max_retries=max_retries
+                    timeout=(timeout if timeout else 900),
+                    max_retries=(max_retries if max_retries else 0)
                 ):
                     # reduce the (bytes) remainder by the length of the chunk.
                     bytes_remaining -= len(chunk)
                     # send to the on_progress callback.
-                    self.on_progress(chunk, fh, bytes_remaining)
+                    await self.on_progress(chunk, file_handler, bytes_remaining)
             except HTTPError as e:
                 if e.code != 404:
                     raise
@@ -280,14 +280,14 @@ class Stream:
                 async for chunk in request.seq_stream(
                     self.url,
                     self._session,
-                    timeout=timeout,
-                    max_retries=max_retries
+                    timeout=(timeout if timeout else 900),
+                    max_retries=(max_retries if max_retries else 0)
                 ):
                     # reduce the (bytes) remainder by the length of the chunk.
                     bytes_remaining -= len(chunk)
                     # send to the on_progress callback.
-                    self.on_progress(chunk, fh, bytes_remaining)
-        self.on_complete(file_path)
+                    await self.on_progress(chunk, file_handler, bytes_remaining)
+        await self.on_complete(file_path)
         return file_path
 
     def get_file_path(
@@ -324,10 +324,10 @@ class Stream:
             # reduce the (bytes) remainder by the length of the chunk.
             bytes_remaining -= len(chunk)
             # send to the on_progress callback.
-            self.on_progress(chunk, buffer, bytes_remaining)
-        self.on_complete(None)
+            await self.on_progress(chunk, buffer, bytes_remaining)
+        await self.on_complete(None)
 
-    def on_progress(
+    async def on_progress(
         self, chunk: bytes, file_handler: BinaryIO, bytes_remaining: int
     ):
         """On progress callback function.
@@ -352,9 +352,9 @@ class Stream:
         file_handler.write(chunk)
         logger.debug("download remaining: %s", bytes_remaining)
         if self._monostate.on_progress:
-            self._monostate.on_progress(self, chunk, bytes_remaining)
+            await self._monostate.on_progress(self, chunk, bytes_remaining)
 
-    def on_complete(self, file_path: Optional[str]):
+    async def on_complete(self, file_path: Optional[str]):
         """On download complete handler function.
 
         :param file_path:
@@ -368,7 +368,7 @@ class Stream:
         on_complete = self._monostate.on_complete
         if on_complete:
             logger.debug("calling on_complete callback %s", on_complete)
-            on_complete(self, file_path)
+            await on_complete(self, file_path)
 
     def __repr__(self) -> str:
         """Printable object representation.
