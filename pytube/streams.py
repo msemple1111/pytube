@@ -17,9 +17,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs
 from aiohttp import ClientSession
 from async_property import async_property
-import aiofiles as aiofs
-import aiofile as aiof
-from aiofiles.threadpool.binary import AsyncFileIO
+
 from pytube import extract
 from pytube import request
 from pytube.helpers import safe_filename
@@ -255,7 +253,7 @@ class Stream:
             filename_prefix=filename_prefix,
         )
 
-        if skip_existing and await self.exists_at_path(file_path):
+        if skip_existing and (await self.exists_at_path(file_path)):
             logger.debug(f'file {file_path} already exists, skipping')
             await self.on_complete(file_path)
             return file_path
@@ -263,18 +261,18 @@ class Stream:
         bytes_remaining = (await self.filesize)
         logger.debug(f'downloading ({(await self.filesize)} total bytes) file to {file_path}')
 
-        with open(file_path, "wb") as fh:
+        with open(file_path, "wb") as file_handler:
             try:
                 async for chunk in request.stream(
                     self.url,
                     self._session,
-                    timeout=timeout,
-                    max_retries=max_retries
+                    timeout=(timeout if timeout else 900),
+                    max_retries=(max_retries if max_retries else 0)
                 ):
                     # reduce the (bytes) remainder by the length of the chunk.
                     bytes_remaining -= len(chunk)
                     # send to the on_progress callback.
-                    await self.on_progress(chunk, fh, bytes_remaining)
+                    await self.on_progress(chunk, file_handler, bytes_remaining)
             except HTTPError as e:
                 if e.code != 404:
                     raise
@@ -282,13 +280,13 @@ class Stream:
                 async for chunk in request.seq_stream(
                     self.url,
                     self._session,
-                    timeout=timeout,
-                    max_retries=max_retries
+                    timeout=(timeout if timeout else 900),
+                    max_retries=(max_retries if max_retries else 0)
                 ):
                     # reduce the (bytes) remainder by the length of the chunk.
                     bytes_remaining -= len(chunk)
                     # send to the on_progress callback.
-                    await self.on_progress(chunk, fh, bytes_remaining)
+                    await self.on_progress(chunk, file_handler, bytes_remaining)
         await self.on_complete(file_path)
         return file_path
 
@@ -330,7 +328,7 @@ class Stream:
         await self.on_complete(None)
 
     async def on_progress(
-        self, chunk: bytes, file_handler:BinaryIO, bytes_remaining: int
+        self, chunk: bytes, file_handler: BinaryIO, bytes_remaining: int
     ):
         """On progress callback function.
 
@@ -351,12 +349,10 @@ class Stream:
         :rtype: None
 
         """
-        
-        async with aiof.async_open(file_handler.name, mode="ab+") as fp:
-            await fp.write(chunk)
-            logger.debug("download remaining: %s", bytes_remaining)
-            if self._monostate.on_progress:
-                await self._monostate.on_progress(self, chunk, bytes_remaining)
+        file_handler.write(chunk)
+        logger.debug("download remaining: %s", bytes_remaining)
+        if self._monostate.on_progress:
+            await self._monostate.on_progress(self, chunk, bytes_remaining)
 
     async def on_complete(self, file_path: Optional[str]):
         """On download complete handler function.
