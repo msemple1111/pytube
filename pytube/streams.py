@@ -318,7 +318,7 @@ class Stream:
            os.path.getsize(file_path) == (await self.filesize)
         )
 
-    async def stream_to_buffer(self, buffer: aiof.BinaryFileWrapper) -> None:
+    async def stream_to_buffer(self, buffer:BinaryIO) -> None:
         """Write the media stream to buffer
 
         :rtype: io.BytesIO buffer
