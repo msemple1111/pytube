@@ -259,7 +259,7 @@ class Stream:
         bytes_remaining = (await self.filesize)
         logger.debug(f'downloading ({(await self.filesize)} total bytes) file to {file_path}')
         # async_open allow us to open and write on many files concurently
-        async with aiof.async_open(file_path, "ab+") as fh:
+        with open(file_path, "ab+") as fh:
             """ 'current_downloaded' help us to indicate to the server that we have already downloaded part of the file and  we just want to continue downloading from there
             """ 
             current_downloaded = fh.tell() # since we are opening file with 'ab' mode file_handler will give filesize in bytes
