@@ -335,7 +335,7 @@ class Stream:
             await self.on_progress(chunk, buffer, bytes_remaining,)
         await self.on_complete(None)
 
-    def on_progress(
+    async def on_progress(
         self, chunk: bytes, file_handler: BinaryIO, bytes_remaining: int
     ):
         """On progress callback function.
@@ -360,7 +360,7 @@ class Stream:
         file_handler.write(chunk)
         logger.debug("download remaining: %s", bytes_remaining)
         if self._monostate.on_progress:
-            self._monostate.on_progress(self, chunk, bytes_remaining)
+            await self._monostate.on_progress(self, chunk, bytes_remaining)
 
     async def on_complete(self, file_path: Optional[str]):
         """On download complete handler function.
