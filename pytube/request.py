@@ -175,7 +175,6 @@ async def stream(
     file_size: int = default_range_size if stream_filesize == 0 else stream_filesize # fake filesize to start otherwise use existing filesize
     downloaded = current_downloaded 
     while downloaded < file_size:
-        print("Im not here hahah ")
         stop_pos = min(downloaded + default_range_size, file_size) - 1
         range_header = f"bytes={downloaded}-"
         tries = 0
@@ -212,7 +211,7 @@ async def stream(
         if file_size == default_range_size:
             try:
                 content_range = response.headers["Content-Range"]
-                print("voici le content range:{}".format(content_range))
+                # print("voici le content range:{}".format(content_range))
                 file_size = int(content_range.split("/")[1])
             except (KeyError, IndexError, ValueError) as e:
                 logger.error(e)
